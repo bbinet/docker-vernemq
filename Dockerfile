@@ -1,7 +1,28 @@
+FROM erlang:21 AS build-env
+
+WORKDIR /vernemq-build
+
+ARG VERNEMQ_GIT_REF=1.10.2
+ARG TARGET=rel
+ARG VERNEMQ_REPO=https://github.com/vernemq/vernemq.git
+
+# Defaults
+ENV DOCKER_VERNEMQ_KUBERNETES_LABEL_SELECTOR="app=vernemq" \
+    DOCKER_VERNEMQ_LOG__CONSOLE=console
+
+RUN apt-get update && \
+    apt-get -y install build-essential git libssl-dev libsnappy-dev && \
+    git clone -b $VERNEMQ_GIT_REF $VERNEMQ_REPO .
+
+COPY bin/build.sh build.sh
+
+RUN ./build.sh $TARGET
+
+
 FROM debian:stretch-slim
 
 RUN apt-get update && \
-    apt-get -y install bash procps openssl iproute2 curl jq libsnappy-dev && \
+    apt-get -y install bash procps openssl iproute2 curl jq libsnappy1v5 && \
     rm -rf /var/lib/apt/lists/* && \
     addgroup --gid 10000 vernemq && \
     adduser --uid 10000 --system --ingroup vernemq --home /vernemq --disabled-password vernemq
@@ -12,16 +33,13 @@ WORKDIR /vernemq
 ENV DOCKER_VERNEMQ_KUBERNETES_LABEL_SELECTOR="app=vernemq" \
     DOCKER_VERNEMQ_LOG__CONSOLE=console \
     PATH="/vernemq/bin:$PATH" \
-    VERNEMQ_VERSION="1.10.2"
+    VERNEMQ_VERSION="$VERNEMQ_GIT_REF"
 
 COPY --chown=10000:10000 bin/vernemq.sh /usr/sbin/start_vernemq
 COPY --chown=10000:10000 files/vm.args /vernemq/etc/vm.args
-ADD https://github.com/vernemq/vernemq/releases/download/$VERNEMQ_VERSION/vernemq-$VERNEMQ_VERSION.stretch.tar.gz /tmp
+COPY --chown=10000:10000 --from=build-env /vernemq-build/release /vernemq
 
-RUN tar -xzvf /tmp/vernemq-$VERNEMQ_VERSION.stretch.tar.gz && \
-    rm /tmp/vernemq-$VERNEMQ_VERSION.stretch.tar.gz && \
-    chown -R 10000:10000 /vernemq && \
-    ln -s /vernemq/etc /etc/vernemq && \
+RUN ln -s /vernemq/etc /etc/vernemq && \
     ln -s /vernemq/data /var/lib/vernemq && \
     ln -s /vernemq/log /var/log/vernemq
 
